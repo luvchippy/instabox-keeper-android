@@ -1,0 +1,50 @@
+name: instabox-keeper-android
+
+on:
+  schedule:
+    # Every 10 minutes: keeps the guest busy (idle pause is 30 min) and
+    # breathes before max-run, so the punitive cooldown never fires.
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: instabox-keeper
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  keeper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run keeper
+        env:
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE: ${{ secrets.INSTABOX_MACHINE }}
+          INSTABOX_BUFFER_MINUTES: '20'
+        run: python instabox_keeper.py
+
+      # GitHub disables scheduled workflows in a public repo after 60 days with
+      # no repository activity, and a workflow run is not activity. One commit a
+      # day keeps that rule satisfied without polluting history.
+      - name: Daily activity stamp
+        if: always()
+        run: |
+          mkdir -p .state
+          TODAY=$(date -u +%Y-%m-%d)
+          if [ "$(cat .state/last-active 2>/dev/null)" != "$TODAY" ]; then
+            echo "$TODAY" > .state/last-active
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .state/last-active
+            git commit -m "activity $TODAY" || true
+            git push || true
+          fi
