@@ -1,6 +1,8 @@
 name: instabox-keeper-android
 
 on:
+  schedule:
+    - cron: '*/10 * * * *'
   workflow_dispatch:
 
 concurrency:
@@ -13,13 +15,29 @@ permissions:
 jobs:
   keeper:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # GitHub caps a job at 360 minutes; stay well inside it and chain the next.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - name: Verify new PAT can chain
+
+      - name: Keep running for 5h40m
+        env:
+          INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
+          INSTABOX_MACHINE: ${{ secrets.INSTABOX_MACHINE }}
+          INSTABOX_BUFFER_MINUTES: '20'
+        run: |
+          END=$(( $(date +%s) + 20400 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            python instabox_keeper.py || true
+            sleep 600
+          done
+
+      - name: Chain the next round
+        if: always()
         env:
           PAT: ${{ secrets.DISPATCH_PAT }}
         run: |
@@ -28,3 +46,17 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/instabox-keeper.yml/dispatches" \
             -d '{"ref":"main"}' -w "dispatch HTTP %{http_code}\n"
+
+      - name: Daily activity stamp
+        if: always()
+        run: |
+          mkdir -p .state
+          TODAY=$(date -u +%Y-%m-%d)
+          if [ "$(cat .state/last-active 2>/dev/null)" != "$TODAY" ]; then
+            echo "$TODAY" > .state/last-active
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add .state/last-active
+            git commit -m "activity $TODAY" || true
+            git push || true
+          fi
