@@ -2,13 +2,11 @@ name: instabox-keeper-android
 
 on:
   schedule:
-    # Every 10 minutes: keeps the guest busy (idle pause is 30 min) and
-    # breathes before max-run, so the punitive cooldown never fires.
     - cron: '*/10 * * * *'
   workflow_dispatch:
 
 concurrency:
-  group: instabox-keeper
+  group: instabox-keeper-android
   cancel-in-progress: false
 
 permissions:
@@ -17,7 +15,8 @@ permissions:
 jobs:
   keeper:
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    # GitHub caps a job at 360 minutes; stay well inside it and chain the next.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
 
@@ -25,16 +24,34 @@ jobs:
         with:
           python-version: '3.12'
 
-      - name: Run keeper
+      # One continuous run of 5h40m. GitHub's cron schedule has proven
+      # unreliable here, so the job does the timing itself and re-dispatches
+      # the next round before it ends.
+      - name: Keep running for 5h40m
         env:
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE: ${{ secrets.INSTABOX_MACHINE }}
           INSTABOX_BUFFER_MINUTES: '20'
-        run: python instabox_keeper.py
+        run: |
+          END=$(( $(date +%s) + 20400 ))
+          while [ "$(date +%s)" -lt "$END" ]; do
+            python instabox_keeper.py || true
+            sleep 600
+          done
 
-      # GitHub disables scheduled workflows in a public repo after 60 days with
-      # no repository activity, and a workflow run is not activity. One commit a
-      # day keeps that rule satisfied without polluting history.
+      - name: Chain the next round
+        if: always()
+        env:
+          PAT: ${{ secrets.DISPATCH_PAT }}
+        run: |
+          curl -sS -X POST \
+            -H "Authorization: Bearer $PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/instabox-keeper.yml/dispatches" \
+            -d '{"ref":"main"}' -w "dispatch HTTP %{http_code}\n"
+
+      # Public repos have scheduled workflows disabled after 60 days with no
+      # repository activity, and a workflow run is not activity.
       - name: Daily activity stamp
         if: always()
         run: |
