@@ -32,6 +32,7 @@ API_KEY = os.environ.get("INSTABOX_API_KEY", "").strip()
 MACHINE = os.environ.get("INSTABOX_MACHINE", "").strip()
 BUFFER_MIN = int(os.environ.get("INSTABOX_BUFFER_MINUTES", "20") or "20")
 KEEPALIVE = os.environ.get("INSTABOX_KEEPALIVE", "1") != "0"
+HEALTHCHECK = os.environ.get("INSTABOX_HEALTHCHECK_CMD", "").strip()
 RUNNING = "running"
 STOPPED = "stopped"
 PAUSED = ("suspended", "paused")
@@ -133,7 +134,7 @@ def breathe(mid):
 def keepalive(mid):
     """A real exec counts as activity and resets the 30 minute idle timer."""
     status, data = api("POST", "/v1/machines/%s/exec" % mid,
-                       body={"cmd": "true", "timeout_seconds": 30}, timeout=90)
+                       body={"cmd": (HEALTHCHECK or "true"), "timeout_seconds": 120}, timeout=180)
     if status and 200 <= status < 300:
         log("keepalive exec ok")
         return True
