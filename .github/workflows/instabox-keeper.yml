@@ -29,6 +29,7 @@ jobs:
           INSTABOX_API_KEY: ${{ secrets.INSTABOX_API_KEY }}
           INSTABOX_MACHINE: ${{ secrets.INSTABOX_MACHINE }}
           INSTABOX_BUFFER_MINUTES: '20'
+          INSTABOX_HEALTHCHECK_CMD: 'timeout 8 adb devices 2>/dev/null | grep -qw device || { adb kill-server 2>/dev/null; docker restart instabox-android >/dev/null 2>&1; }'
         run: |
           END=$(( $(date +%s) + 20400 ))
           while [ "$(date +%s)" -lt "$END" ]; do
